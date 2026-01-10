@@ -1,11 +1,26 @@
 /**
  * Anime Detector Plugin
- * Detects if content is anime based on keywords and Japanese text
+ *
+ * Detects if a file is likely anime based on:
+ * - Common anime keywords in filename
+ * - Japanese text in title (kana, kanji)
+ * - Japanese audio tracks
+ * - "anime" in file path
+ *
+ * Matches old AnimeDetector output:
+ * - titles/jpn (if kana)
+ * - titles/{romajiIsoCode} (if romaji)
+ * - anime
+ * - genres (add "Anime")
  */
 
 import { isJapanese, isKana } from 'wanakana';
+import { animeKeywords } from '@metazla/filename-tools';
 import type { PluginManifest, ProcessRequest, CallbackPayload } from './types.js';
 import { MetaCoreClient } from './meta-core-client.js';
+
+// romajiIsoCode from @metazla/meta-interface is just 'jpl'
+const romajiIsoCode = 'jpl';
 
 export const manifest: PluginManifest = {
     id: 'anime-detector',
@@ -21,40 +36,10 @@ export const manifest: PluginManifest = {
     schema: {
         anime: { label: 'Is Anime', type: 'boolean', readonly: true },
         'titles/jpn': { label: 'Japanese Title', type: 'string' },
+        [`titles/${romajiIsoCode}`]: { label: 'Romaji Title', type: 'string' },
     },
     config: {},
 };
-
-// Anime keywords from @metazla/filename-tools - fansub group identifiers only
-// Note: Codec patterns (HEVC, x265, etc.) are NOT anime indicators
-const ANIME_KEYWORDS = [
-    '[HorribleSubs]',
-    '[DB]', // Dragon Ball fansubs, also generic for various sub groups
-    '[Erai-raws]',
-    '[SubsPlease]',
-    '[GG]', // A known fansub group
-    '[Commie]', // A fansubbing group
-    '[Underwater]', // A fansubbing group
-    '[Nyaa]', // A reference to the Nyaa Torrents site, often included in anime torrents
-    '[FFF]', // A fansubbing group
-    '[Coalgirls]', // A fansubbing group known for high-quality releases
-    '[Chihiro]', // A fansubbing group
-    '[DameDesuYo]', // A fansubbing group
-    '[GJM]', // A fansubbing group (Good Job! Media)
-    '[AhorribleSubs]', // A misspelling of HorribleSubs sometimes used
-    '[AnimeRG]', // A group known for releasing anime torrents
-    '[Judas]', // A group known for their anime releases
-    '[Cleo]', // A group known for their anime encodes
-    '[LostYears]', // A group known for dub and sub releases
-    '[KaiDubs]', // A group known for dubbed anime releases
-    '[AnimeKaizoku]', // A website known for anime downloads, sometimes included in filenames
-    '[AnimeLand]', // A website known for anime downloads, sometimes included in filenames
-    '[Beatrice-Raws]', // A group known for raw anime blu-ray encodes
-    '[BakedFish]', // A less common but recognized release group
-    '[DeadFish]', // A group known for re-encoding fansubs into hardsubbed mp4 format
-    '[Golumpa]', // A group known for dubbed anime releases
-    '[EMBER]', // A group known for their anime releases
-];
 
 export async function process(
     request: ProcessRequest,
@@ -79,6 +64,7 @@ export async function process(
 
         const originalTitle = existingMeta?.originalTitle || '';
         const fileName = existingMeta?.fileName || '';
+
         let isAnime = false;
         let isJpn = false;
 
@@ -88,8 +74,8 @@ export async function process(
             isJpn = true;
         }
 
-        // Check for anime keywords
-        for (const keyword of ANIME_KEYWORDS) {
+        // Check for anime keywords in filename (from @metazla/filename-tools)
+        for (const keyword of animeKeywords) {
             if (fileName.includes(keyword)) {
                 isAnime = true;
                 isJpn = true;
@@ -97,45 +83,46 @@ export async function process(
             }
         }
 
-        // Check if title is Japanese
+        // Check if title is in Japanese
         if (originalTitle && (isKana(originalTitle) || isJapanese(originalTitle))) {
             isJpn = true;
         }
 
         // Check audio streams for Japanese language
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 20; i++) {
             const lang = existingMeta?.[`fileinfo/streamdetails/audio/${i}/language`];
-            if (lang === 'jpn' || lang === 'ja') {
+            if (!lang) break;
+            if (lang === 'jpn') {
                 isJpn = true;
                 break;
             }
-            if (!lang) break;
         }
 
-        // Check video streams for Japanese language (matching original)
-        for (let i = 0; i < 10; i++) {
+        // Check video streams for Japanese language
+        for (let i = 0; i < 20; i++) {
             const lang = existingMeta?.[`fileinfo/streamdetails/video/${i}/language`];
-            if (lang === 'jpn' || lang === 'ja') {
+            if (!lang) break;
+            if (lang === 'jpn') {
                 isJpn = true;
                 break;
             }
-            if (!lang) break;
         }
 
-        const metadata: Record<string, string> = {};
-
+        // Set Japanese title appropriately
         if (isJpn && originalTitle) {
             if (isKana(originalTitle)) {
-                metadata['titles/jpn'] = originalTitle;
+                await metaCore.setProperty(cid, 'titles/jpn', originalTitle);
             } else {
-                metadata['titles/rom'] = originalTitle;
+                await metaCore.setProperty(cid, `titles/${romajiIsoCode}`, originalTitle);
             }
         }
 
+        // Anything Japanese is considered anime (as per original implementation)
         if (isAnime || isJpn) {
-            metadata.anime = 'true';
-            await metaCore.mergeMetadata(cid, metadata);
+            await metaCore.setProperty(cid, 'anime', 'true');
+            // Use add for genres (RecordSet)
             await metaCore.addToSet(cid, 'genres', 'Anime');
+            console.log(`[anime-detector] Detected anime: ${fileName}`);
         }
 
         await sendCallback({
