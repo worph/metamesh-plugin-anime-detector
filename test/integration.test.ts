@@ -12,6 +12,7 @@ import { animeKeywords } from '@metazla/filename-tools';
 // Dynamic import of plugin module
 let manifest: typeof import('../src/plugin.js').manifest;
 let processFile: typeof import('../src/plugin.js').process;
+let titleMemberKey: typeof import('../src/plugin.js').titleMemberKey;
 
 // Mock callback collector
 interface CallbackResult {
@@ -33,6 +34,7 @@ describe('Anime Detector Plugin Integration Tests', () => {
         const plugin = await import('../src/plugin.js');
         manifest = plugin.manifest;
         processFile = plugin.process;
+        titleMemberKey = plugin.titleMemberKey;
     });
 
     describe('Manifest', () => {
@@ -48,7 +50,14 @@ describe('Anime Detector Plugin Integration Tests', () => {
 
         it('declares correct schema', () => {
             expect(manifest.schema).toHaveProperty('anime');
-            expect(manifest.schema).toHaveProperty('titles/jpn');
+            expect(manifest.schema).toHaveProperty(['titles/jpn/*']);
+        });
+
+        it('builds titles key-set member keys', () => {
+            expect(titleMemberKey('jpn', '  ナルト ')).toBe('titles/jpn/ナルト');
+            expect(titleMemberKey('eng', 'Fate/Zero')).toBe('titles/eng/Fate\u2215Zero');
+            expect(titleMemberKey('jpl', 'Sousou  no\tFrieren')).toBe('titles/jpl/Sousou no Frieren');
+            expect(titleMemberKey('jpn', '   ')).toBeUndefined();
         });
     });
 

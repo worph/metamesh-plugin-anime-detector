@@ -8,8 +8,8 @@
  * - "anime" in file path
  *
  * Matches old AnimeDetector output:
- * - titles/jpn (if kana)
- * - titles/{romajiIsoCode} (if romaji)
+ * - titles/jpn/<name> (if kana) — key-set member, METADATA_KEYS.md §3
+ * - titles/{romajiIsoCode}/<name> (if romaji)
  * - anime
  * - genres (add "Anime")
  */
@@ -21,6 +21,16 @@ import { MetaCoreClient } from './meta-core-client.js';
 
 // romajiIsoCode from @metazla/meta-interface is just 'jpl'
 const romajiIsoCode = 'jpl';
+
+/**
+ * `titles/<lang3>/<name>` key-set member key (METADATA_KEYS.md §3): trimmed,
+ * whitespace collapsed, `/` (the key-set separator) written as U+2215 `∕`.
+ * `undefined` when nothing is left to name.
+ */
+export function titleMemberKey(lang3: string, name: string | undefined | null): string | undefined {
+    const clean = (name ?? '').trim().replace(/\s+/g, ' ').replace(/\//g, '\u2215');
+    return clean ? `titles/${lang3}/${clean}` : undefined;
+}
 
 export const manifest: PluginManifest = {
     id: 'anime-detector',
@@ -35,8 +45,9 @@ export const manifest: PluginManifest = {
     timeout: 30000,
     schema: {
         anime: { label: 'Is Anime', type: 'boolean', readonly: true },
-        'titles/jpn': { label: 'Japanese Title', type: 'string' },
-        [`titles/${romajiIsoCode}`]: { label: 'Romaji Title', type: 'string' },
+        // Key-set members `titles/<lang3>/<name> = "true"` (METADATA_KEYS.md §3).
+        'titles/jpn/*': { label: 'Japanese Titles', type: 'boolean', readonly: true },
+        [`titles/${romajiIsoCode}/*`]: { label: 'Romaji Titles', type: 'boolean', readonly: true },
     },
     config: {},
 };
@@ -110,10 +121,10 @@ export async function process(
 
         // Set Japanese title appropriately
         if (isJpn && originalTitle) {
-            if (isKana(originalTitle)) {
-                await metaCore.setProperty(cid, 'titles/jpn', originalTitle);
-            } else {
-                await metaCore.setProperty(cid, `titles/${romajiIsoCode}`, originalTitle);
+            const lang3 = isKana(originalTitle) ? 'jpn' : romajiIsoCode;
+            const key = titleMemberKey(lang3, originalTitle);
+            if (key) {
+                await metaCore.mergeMetadata(cid, { [key]: 'true' });
             }
         }
 

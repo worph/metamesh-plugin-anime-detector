@@ -16,8 +16,8 @@ This plugin analyzes video files to determine if they are anime content. Detecti
 | Field | Description |
 |-------|-------------|
 | `anime` | Boolean indicating if content is anime |
-| `titles/jpn` | Japanese title (if detected) |
-| `titles/rom` | Romanized title |
+| `titles/jpn/{name}` | `"true"` — Japanese title (if detected) |
+| `titles/jpl/{name}` | `"true"` — romaji title |
 | `genres` | Adds "Anime" to genres set |
 
 ## Dependencies
